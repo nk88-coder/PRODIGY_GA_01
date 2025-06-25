@@ -16,10 +16,10 @@ with open(shakespeare_path, "r") as f:
     all_lines = f.readlines()
 
 # Extract training/validation texts
-train_texts = all_lines[:5000]  # truncate for faster training
-val_texts = all_lines[5000:5500]  # simple validation split
+train_texts = all_lines[:5000]
+val_texts = all_lines[5000:5500]
 
-# Combine text with formatting (optional)
+# Prompt-format
 train_texts = ["user: " + t.strip() + "\nbot: [response] end" for t in train_texts]
 val_texts = ["user: " + t.strip() + "\nbot: [response] end" for t in val_texts]
 
@@ -35,7 +35,7 @@ tokenizer.pad_token = tokenizer.eos_token
 train_encodings = tokenizer(train_texts, padding=True, truncation=True, return_tensors='pt')
 val_encodings = tokenizer(val_texts, padding=True, truncation=True, return_tensors='pt')
 
-# Mask function
+# Mask user input
 def mask_user_input(input_ids_batch, texts):
     labels = input_ids_batch.clone()
     for i, text in enumerate(texts):
@@ -64,35 +64,21 @@ class ConversationDataset(Dataset):
             'labels': self.labels[idx]
         }
 
-# Datasets
+# Dataset init
 train_dataset = ConversationDataset(train_encodings, train_texts)
 val_dataset = ConversationDataset(val_encodings, val_texts)
 
-
+# ✅ Load full GPT-2 (124M) without LoRA
 from transformers import GPT2LMHeadModel, GPT2Config
 
-# Model
 config = GPT2Config.from_pretrained("gpt2")
 config.pad_token_id = tokenizer.pad_token_id
 model = GPT2LMHeadModel.from_pretrained("gpt2", config=config)
 model.resize_token_embeddings(len(tokenizer))
 model.config.use_cache = False
-model.gradient_checkpointing_enable()
+model.gradient_checkpointing_enable()  # optional for long seq
 
-from peft import get_peft_model, LoraConfig
-
-lora_config = LoraConfig(
-    r=16,
-    lora_alpha=64,
-    lora_dropout=0.2,
-    bias='none',
-    task_type="CAUSAL_LM",
-    target_modules=["c_attn", "c_proj"]
-)
-
-model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()
-
+# Trainer
 from transformers import TrainingArguments, DataCollatorForLanguageModeling, Trainer
 from torch.utils.data import RandomSampler, DataLoader
 
@@ -101,7 +87,7 @@ data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
 # Training Args
 training_args = TrainingArguments(
-    output_dir="./gpt2_lora_model",
+    output_dir="./gpt2_full_finetuned",
     per_device_train_batch_size=12,
     num_train_epochs=3,
     logging_dir='./logs',
@@ -113,7 +99,7 @@ training_args = TrainingArguments(
     dataloader_num_workers=2,
     dataloader_pin_memory=True,
     disable_tqdm=False,
-    learning_rate=5e-4,
+    learning_rate=5e-5,  # 🚨 Slower LR when full model trains
     weight_decay=0.01,
     warmup_steps=200,
     lr_scheduler_type='linear'
@@ -131,6 +117,7 @@ class CustomTrainer(Trainer):
             pin_memory=self.args.dataloader_pin_memory,
         )
 
+# Init Trainer
 trainer = CustomTrainer(
     model=model,
     args=training_args,
@@ -139,7 +126,9 @@ trainer = CustomTrainer(
     tokenizer=tokenizer,
 )
 
+# 🔥 Train full model
 trainer.train()
 
-model.save_pretrained("./gpt2_lora_model")
-tokenizer.save_pretrained("./gpt2_lora_model")
+# Save
+model.save_pretrained("./gpt2_full_finetuned")
+tokenizer.save_pretrained("./gpt2_full_finetuned")
