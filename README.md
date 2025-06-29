@@ -3,6 +3,8 @@
 
 This is a **plug-and-play Python script** to finetune GPT-2 using your own chatbot-style data (like user-bot messages). Designed for internships, GenAI projects, or to show off your AI game 💬⚡
 
+✅ Currently fine-tuned on Shakespearean text for poetic and dramatic conversations.
+
 ---
 
 ## 🚀 Features
@@ -23,4 +25,5 @@ Your dataset must have two columns:
 user,bot
 hi,hello there!
 how are you?,i'm doing great! what about you?
+
 
